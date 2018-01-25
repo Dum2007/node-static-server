@@ -1,0 +1,1451 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>three.js webgl - gltf exporter</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
+    <style>
+        body {
+            font-family: Monospace;
+            background-color: #000;
+            margin: 0px;
+            overflow: hidden;
+        }
+        #info {
+            color: #ccc;
+            text-align: center;
+            position: absolute;
+            top: 0px; width: 100%;
+            padding: 5px;
+        }
+    </style>
+</head>
+<body>
+<script src="../libs/three.js"></script>
+<script src="./MRandom.js"></script>
+<script src="./Tween.js"></script>
+<script src="./Config.js"></script>
+<script src="./Lookers.js"></script>
+<script src="./Session.js"></script>
+<script src="./PointInPolygon.js"></script>
+<script src="./MAnimation.js"></script>
+<script src="./MStorage.js"></script>
+<script src="./FONT.js"></script>
+<script src="./GroupPage.js"></script>
+<script src="./BattlePkPage.js"></script>
+<script src="./BattleGamePage.js"></script>
+<script src="./ObserveCtrl.js"></script>
+<script src="./PlayerCtrl.js"></script>
+<script src="./WaitingPage.js"></script>
+<script src="./GgPage.js"></script>
+<script src="./OutPage.js"></script>
+<script src="./BattleCtrl.js"></script>
+<script src="./GamePage.js"></script>
+<script src="./GroupShareCtrl.js"></script>
+<script src="./SingleGameOverPage.js"></script>
+<script src="./SingleFriendRankPage.js"></script>
+<script src="./SingleStartPage.js"></script>
+<script src="./SingleCtrl.js"></script>
+<script src="./Network.js"></script>
+<script src="./QueryCtrl.js"></script>
+<script src="./NetworkCtrl.js"></script>
+<script src="./ModeCtrl.js"></script>
+<script src="./Ground.js"></script>
+<script src="./Wave.js"></script>
+<script src="./Block.js"></script>
+<script src="./Bottle.js"></script>
+<script src="./Text.js"></script>
+<script src="./GameUI.js"></script>
+<script src="./Rank.js"></script>
+<script src="./GameCtrl.js"></script>
+<script src="./GameView.js"></script>
+<script src="./GameModel.js"></script>
+<script src="./InstuctionCtrl.js"></script>
+<script src="./reporter.js"></script>
+<script src="./AudioManager.js"></script>
+<script src="./GameSocket.js"></script>
+<script src="./HistoryTimes.js"></script>
+<script src="./viewer.js"></script>
+<script src="./TailSystem.js"></script>
+<script src="./RankSystem.js"></script>
+
+
+<script>
+    var HEIGHT = window.innerHeight > window.innerWidth ? window.innerHeight : window.innerWidth;
+    var WIDTH = window.innerHeight < window.innerWidth ? window.innerHeight : window.innerWidth;
+    var isIPhone = navigator.platform == 'ios';
+    var Game = function (options) {
+        this.options = options;
+
+        this.is_from_wn = 0;
+        // this.is_from_wn = 1
+
+        this.firstInit = true;
+        this.distance = 0;
+
+        this.heightestScore = 0;
+
+        // 目前stage有 game,friendRankList,singleSettlementPgae,groupShareList,battlePage
+        this.stage = '';
+        this.succeedTime = 0;
+        this.lastAddBonus = -2;
+
+        this.lastStage = '';
+
+        // 定时器，死亡碰撞
+        this.deadTimeout = null;
+
+        // 本小局分数
+        this.currentScore = 0;
+        this.seq = 0;
+
+        this.thirdBlock = null;
+
+        this.straight = true;
+
+        this.firstBlood = false;
+
+        this.lastHardLevel = 200;
+        this.guider = false;
+
+        this.hardDistances = [];
+
+        this.duration = [];
+        this.quickArr = [];
+        this.socketFirstSync = false;
+        this.init();
+
+        this.randomSeed = Date.now();
+        (0, setRandomSeed)(this.randomSeed);
+        this.actionList = [];
+        this.musicList = [];
+        this.touchList = [];
+        this.blocks = [];
+
+        this.liveTime = 0;
+    }
+    Game.prototype.init = function () {
+
+        var fb = MStorage.getFirstBlood();
+        if (!fb && this.options && this.options.query.mode && this.options.query) {
+            this.guider = true;
+        }
+
+        this.gameCtrl = new GameCtrl(this);
+        this.gameView = new GameView(this);
+        this.gameModel = new GameModel(this);
+        this.instructionCtrl = new InstuctionCtrl(this);
+
+        /**
+         * 历史玩过的次数
+         */
+        this.historyTimes = new HistoryTimes(this);
+
+        /**
+         * 数据上报
+         */
+        this.reporter = new reporter();
+
+        /**
+         * 数据初始化
+         */
+        this.audioManager = new AudioManager(this);
+        this.gameSocket = new GameSocket(this);
+
+
+        /**
+         * 初始化场景
+         */
+
+        this.canvas = document.createElement( 'div' );
+        document.body.appendChild( this.canvas );
+
+        this.scene = new THREE.Scene();
+        this.scene.name = 'Scene';
+
+        var frustumSize = Config.FRUSTUMSIZE;
+        var aspect = WIDTH / HEIGHT;
+        this.camera = new THREE.OrthographicCamera(frustumSize * aspect / -2, frustumSize * aspect / 2, frustumSize / 2, frustumSize / -2, -10, 85 );
+        this.camera.position.set(-17, 30, 26);
+        this.camera.lookAt(new THREE.Vector3(13, 0, -4));
+        this.scene.add( this.camera );
+
+
+        this.renderer = new THREE.WebGLRenderer( { antialias: true } );
+        window.renderer = this.renderer;
+
+        this.renderer.setPixelRatio( window.devicePixelRatio );
+
+        this.blocksPool = [];
+        this.blocksInUse = [];
+        this.doubleHit = 0;
+        if (isIPhone) {
+
+        }
+        else {
+            this.renderer.shadowMap.enabled = true;
+        }
+        this.renderer.setSize( window.innerWidth, window.innerHeight );
+        this.canvas.appendChild( this.renderer.domElement );
+        this.renderer.localClippingEnabled = true;
+
+        this.ground = new Ground();
+        this.ground.obj.position.z = -84;
+        this.camera.add(this.ground.obj);
+
+        this.waves = [];
+        for (var i = 0; i < 4; ++i) {
+            var wave = new Wave();
+            this.waves.push(wave);
+            wave.obj.visible = false;
+            this.scene.add(wave.obj);
+        }
+
+        var basicMaterial = new THREE.MeshBasicMaterial({ color: 0xF5F5F5 });
+        this.combo = new THREE.Mesh(new THREE.CircleGeometry(0.6, 40), basicMaterial);
+        this.combo.name = 'combo';
+        this.combo.position.x = -50;
+        this.combo.rotation.x = -Math.PI / 2;
+        this.scene.add(this.combo);
+//
+        if (this.renderer.shadowMap.enabled) {
+            this.shadowTarget = new THREE.Mesh(new THREE.PlaneGeometry(0.1, 0.1), basicMaterial);
+            this.shadowTarget.visible = false;
+            this.shadowTarget.name = 'shadowTarget';
+            this.scene.add(this.shadowTarget);
+        }
+//
+        this.currentBlock = new Block(0);
+
+        this.initNextBlock = this.nextBlock = new Block(1);
+        this.nextBlock.obj.position.x = 20;
+        this.bottle = new Bottle();
+        this.bottle.obj.position.set(-10, -Config.BLOCK.height / 2, 0);
+        this.scene.add(this.bottle.obj);
+
+        var self = this;
+        if (this.guider) {
+            this.bottle.obj.position.set(-11, 50, 0);
+            this.camera.position.x -= 19;
+            setTimeout(function () {
+                self.bottle.showup();
+            }, 800);
+            this.currentBlock.obj.position.x = -11;
+            this.currentBlock.change(null, 'gray', 0.7);
+            this.scene.add(this.currentBlock.obj);
+            this.guiderTimer = setInterval(function () {
+                self.bottle.velocity.vz = 0;
+                self.bottle.velocity.vy = 150;
+                self.direction = new THREE.Vector2(1, 0);
+                var direction = new THREE.Vector3(1, 0, 0);
+                self.bottle.jump(direction.normalize());
+                self.hit = self.checkHit2(self.bottle, self.currentBlock);
+            }, 3000);
+        }
+        this.blocksInUse.push(this.nextBlock);
+        this.blocksInUse.push(this.currentBlock);
+
+        for (var i = 2; i < 30; ++i) {
+            var block = new Block(i);
+            this.blocksPool.push(block);
+//            this.scene.add(block.obj);
+        }
+
+        this.full2D = new Rank({
+            camera: this.camera,
+            // --- 结算页：点击排行榜的回调
+            onClickRank: this.gameCtrl.clickRank.bind(this.gameCtrl),
+            // 在玩一局
+            onClickReplay: this.gameCtrl.clickReplay.bind(this.gameCtrl),
+            // 分享挑战
+            onClickShare: this.gameCtrl.shareBattleCard.bind(this.gameCtrl),
+            // -- 首页：游戏开始
+            onClickStart: this.gameCtrl.clickStart.bind(this.gameCtrl),
+            // 点击排行
+            onShowFriendRank: this.gameCtrl.showFriendRank.bind(this.gameCtrl),
+            // -- 挑战页面
+            onBattlePlay: this.gameCtrl.onBattlePlay.bind(this.gameCtrl),
+            // -- 好友排行，群分享
+            onGroupShare: this.gameCtrl.shareGroupRank.bind(this.gameCtrl),
+            // 返回上一页
+            friendRankReturn: this.gameCtrl.friendRankReturn.bind(this.gameCtrl),
+            // -- 群排行，我也玩一局
+            groupPlayGame: this.gameCtrl.groupPlayGame.bind(this.gameCtrl),
+            // -- 围观页，开启新的一局
+            onLookersStart: this.gameCtrl.onViewerStart.bind(this.gameCtrl),
+            // -- 返回微信
+            onReturnWechat: function onReturnWechat() {
+                // wx.exitMiniProgram();
+            },
+            // -- 纯分享
+            onClickPureShare: function onClickPureShare(type) {
+                // (0, _shareApp.pureShare)(type, _this3.gameModel.currentScore);
+            }
+        });
+
+        this.UI = new GameUI(this.scene, this.camera, this.full2D, this);
+
+        if (Config.GAME.canShadow) {
+            this.tailSystem = new TailSystem(this.scene, this.bottle);
+        }
+
+//
+        this.addLight();
+        this.bindEvent();
+        // 围观群众
+        this.viewer = new viewer(this.camera);
+
+        // 初始化好友超越机制
+        this.rankSystem = new RankSystem(this);
+
+//        this.audioManager.icon.play();
+        this.UI.hideScore();
+
+        // 这个一定要放在最底下
+        this.gameModel.init();
+        this.gameCtrl.init();
+        this.gameView.init();
+
+        this.gameCtrl.firstInitGame(this.options);
+
+        console.log('--this.mode--', this.mode)
+
+        this.handleWxOnShowEvent(this);
+    }
+    Game.prototype.bindEvent = function () {
+        var self = this;
+        self.instructionCtrl.bindCmdHandler(function (data) {
+            if (data.type == -1) {
+                self.gameCtrl.showPlayerGG(data.s);
+                self.instructionCtrl.onCmdComplete();
+                return;
+            } else if (data.type == 0) {
+                // self.gameCtrl.showPlayerWaiting()
+                // self.replayGame(data.seed)
+                self.socketFirstSync = true;
+                self.bottle.reset();
+                self.UI.scoreText.changeStyle({ textAlign: 'center' });
+                self.UI.setScore(0);
+                self.instructionCtrl.onCmdComplete();
+                return;
+            } else {
+                self.gameCtrl.showPlayerWaiting();
+                if (data.score != self.UI.score) {
+                    self.UI.score = data.score;
+                    self.UI.setScore(data.score);
+                }
+            }
+
+            if (!data || !data.b || !data.b.vy) {
+                self.instructionCtrl.onCmdComplete();
+                return;
+            }
+            if (self.socketFirstSync) {
+                self.socketFirstSync = false;
+                self.camera.position.set(data.ca.x, data.ca.y, data.ca.z);
+                self.ground.obj.position.set(data.gd.x, data.gd.y, data.gd.z);
+            }
+            // 如果两个序号不一样，就重置两个队列
+            if (self.currentBlock.order != data.c.order || self.nextBlock.order != data.n.order) {
+                for (var i = 0, len = self.blocksInUse.length; i < len; ++i) {
+                    var block = self.blocksInUse.pop();
+                    self.scene.remove(block.obj);
+                    self.blocksPool.push(block);
+                }
+                var cIn = self.blocksPool.findIndex(function (el) {
+                    return el.order == data.c.order;
+                });
+                self.currentBlock = self.blocksPool[cIn];
+                var temp = self.blocksPool.splice(cIn, 1);
+                self.blocksInUse.push(temp[0]);
+
+                var nIn = self.blocksPool.findIndex(function (el) {
+                    return el.order == data.n.order;
+                });
+                self.nextBlock = self.blocksPool[nIn];
+                var temp = self.blocksPool.splice(nIn, 1);
+                self.blocksInUse.push(temp[0]);
+            }
+            self.scene.add(self.currentBlock.obj);
+            self.scene.add(self.nextBlock.obj);
+            self.currentBlock.obj.visible = true;
+            self.nextBlock.obj.visible = true;
+            self.currentBlock.obj.position.x = data.c.x;
+            self.currentBlock.obj.position.z = data.c.z;
+            self.currentBlock.change(data.c.r, data.c.type, data.c.rs);
+
+            self.nextBlock.obj.position.x = data.n.x;
+            self.nextBlock.obj.position.z = data.n.z;
+            self.nextBlock.change(data.n.r, data.n.type, data.n.rs);
+
+            self.bottle.obj.position.set(data.b.x, Config.BLOCK.height / 2, data.b.z);
+            self.bottle.velocity.vz = data.b.vz;
+            self.bottle.velocity.vy = data.b.vy;
+            self.distance = data.di;
+            self.straight = data.s;
+            var direction = new THREE.Vector3(self.nextBlock.obj.position.x - self.bottle.obj.position.x, 0, self.nextBlock.obj.position.z - self.bottle.obj.position.z);
+            self.direction = new THREE.Vector2(self.nextBlock.obj.position.x - self.bottle.obj.position.x, self.nextBlock.obj.position.z - self.bottle.obj.position.z);
+            self.checkHit2(self.bottle, self.currentBlock, self.nextBlock, data.b.y);
+            self.quick = data.q;
+            // 先在pool里面找第三块
+            if (data.t) {
+
+                var tIn = self.blocksPool.findIndex(function (el) {
+                    return el.order == data.t.order;
+                });
+                if (tIn > -1) {
+                    self.thirdBlock = self.blocksPool[tIn];
+                    var temp = self.blocksPool.splice(tIn, 1);
+                    self.blocksInUse.push(self.thirdBlock);
+                } else {
+                    self.thirdBlock = self.blocksInUse.find(function (el) {
+                        return el.order == data.t.order;
+                    });
+                    self.scene.remove(self.thirdBlock.obj);
+                }
+
+                self.thirdBlock.change(data.t.r, data.t.type, data.t.rs);
+            }
+            self.hit = data.h;
+            if (self.tailSystem) {
+
+                self.tailSystem.correctPosition();
+            }
+
+            //self.audioManager.scale_intro.stop();
+//            self.audioManager.scale_intro.seek(0);
+//            self.audioManager.scale_intro.play();
+            self.bottle.prepare();
+            self.currentBlock.shrink();
+
+            var caPos = {
+                x: data.ca.x,
+                y: data.ca.y,
+                z: data.ca.z
+            };
+            var gdPos = {
+                x: data.gd.x,
+                y: data.gd.y,
+                z: data.gd.z
+            };
+            self.stopBlockMusic();
+            self.instructionCtrl.icTimeout = setTimeout(function () {
+//                self.audioManager.scale_intro.stop();
+//                self.audioManager.scale_loop.stop();
+                if (self.currentBlock.order == 15) {
+                    self.currentBlock.hideGlow();
+                }
+                self.currentBlock.rebound();
+                self.camera.position.set(caPos.x, caPos.y, caPos.z);
+                self.ground.obj.position.set(gdPos.x, gdPos.y, gdPos.z);
+                caPos = null;
+                gdPos = null;
+                self.bottle.jump(direction.normalize());
+            }, data.d * 1000);
+            data = null;
+        });
+
+        self.gameSocket.onReciveCommand(function (seq, data) {
+            if (self.mode != 'observe') {
+                return;
+            }
+            self.instructionCtrl.onReceiveCommand(data, seq);
+        });
+
+        self.gameSocket.onPeopleCome(function (data) {
+            self.gameCtrl.onPeopleCome(data);
+        });
+
+        self.gameSocket.onPlayerOut(function () {
+            self.gameCtrl.onPlayerOut();
+        });
+
+        self.gameSocket.onJoinSuccess(function (success) {
+            self.gameCtrl.socketJoinSuccess(success);
+            if (self.mode == 'observe') {
+                // 展示初始画面
+                self.bottle.obj.position.set(8, -Config.BLOCK.height / 2, 0);
+                self.camera.position.set(-17, 30, 26);
+                self.shadowLight.position.set(0, 15, 10);
+                if (self.currentBlock) {
+                    self.currentBlock.obj.visible = false;
+                }
+                if (self.nextBlock) {
+                    self.nextBlock.obj.visible = false;
+                }
+            }
+        });
+        this.canvas.addEventListener('touchstart', function (e) {
+            // self.full2D.doTouchStartEvent(e); return;
+            /**
+             * 全局都能触发的事件
+             */
+
+            if (self.mode == 'single' || self.mode == 'player') {
+                if (self.stage == 'game' && !self.is_from_wn && !self.guider) {
+                    if (e.changedTouches[0].clientX < WIDTH * 0.13 && e.changedTouches[0].clientY > HEIGHT * (1 - 0.12)) {
+                        self.gameCtrl.shareObservCard();
+                        return;
+                    }
+                }
+            }
+
+            /**
+             *  根据stage来改变派发事件
+             */
+            if (self.stage == 'friendRankList' || self.stage == 'battlePage' || self.stage == 'groupRankList' || self.stage == 'singleSettlementPgae' || self.stage == 'startPage') {
+                self.full2D.doTouchStartEvent(e);
+                return;
+            }
+
+            if (self.stage == 'viewerWaiting' || self.stage == 'viewerGG' || self.stage == 'viewerOut') {
+                self.full2D.doTouchEndEvent(e);
+                return;
+            }
+
+            if (self.stage == 'game') {
+                if (self.mode === 'observe') return;
+                //self.audioManager.scale_loop.stop()
+                //self.audioManager.scale_intro.stop()
+                if (self.bottle.status === 'stop' && !self.pendingReset && !(self.guider && self.animating)) {
+                    // 缩放声音开始
+                    // self.audioManager.scale.currentTime = 0
+                    self.stopBlockMusic();
+//                    self.audioManager.scale_intro.seek(0);
+//                    self.audioManager.scale_intro.play();
+                    self.bottle.prepare();
+                    self.currentBlock.shrink();
+                    self.mouseDownTime = Date.now();
+                }
+                return;
+            }
+        });
+
+
+        var touchEnd = function touchEnd(e) {
+            // self.full2D.doTouchEndEvent(e); return;
+            var x = e.changedTouches[0].clientX;
+            var y = e.changedTouches[0].clientY;
+
+            if (self.bottle.status === 'prepare' && !self.pendingReset && !(self.guider && self.animating) && self.stage != 'game') {
+                self.handleWxOnError({
+                    'message': 'touchstart triggered and bottle prepare but touchend error.  stage: ' + self.stage,
+                    'stack': ''
+                });
+            }
+
+            if (self.stage == 'singleSettlementPgae' || self.stage == 'startPage') {
+                console.log('-----doTouchEndEvent----111----', self.stage);
+                self.full2D.doTouchEndEvent(e);
+                return;
+            }
+            if (self.stage == 'viewerWaiting' || self.stage == 'viewerGG' || self.stage == 'viewerOut') {
+                self.full2D.doTouchEndEvent(e);
+                return;
+            }
+
+            if (self.stage == 'friendRankList') {
+                self.full2D.doTouchEndEvent(e);
+                return;
+            }
+
+            if (self.stage == 'battlePage') {
+                self.full2D.doTouchEndEvent(e);
+                return;
+            }
+
+            if (self.stage == 'groupRankList') {
+                self.full2D.doTouchEndEvent(e);
+            }
+
+            if (self.stage == 'game') {
+                if (self.bottle.status === 'prepare' && !self.pendingReset && !(self.guider && self.animating)) {
+                    // 缩放声音结束
+//                    self.audioManager.scale_intro.stop();
+//                    self.audioManager.scale_loop.stop();
+                    // self.audioManager['jump_' + jumpType].seek(0);
+                    // self.audioManager['jump_' + jumpType].play();
+                    self.currentBlock.rebound();
+                    var duration = (Date.now() - self.mouseDownTime) / 1000;
+                    // self.duration.push(duration);
+
+                    self.bottle.velocity.vz = Math.min(duration * Config.BOTTLE.velocityZIncrement, 150);
+                    self.bottle.velocity.vz = +self.bottle.velocity.vz.toFixed(2);
+                    self.bottle.velocity.vy = Math.min(Config.BOTTLE.velocityY + duration * Config.BOTTLE.velocityYIncrement, 180);
+                    self.bottle.velocity.vy = +self.bottle.velocity.vy.toFixed(2);
+                    self.direction = new THREE.Vector2(self.nextBlock.obj.position.x - self.bottle.obj.position.x, self.nextBlock.obj.position.z - self.bottle.obj.position.z);
+                    self.direction.x = +self.direction.x.toFixed(2);
+                    self.direction.y = +self.direction.y.toFixed(2);
+                    var direction = new THREE.Vector3(self.direction.x, 0, self.direction.y);
+                    self.bottle.jump(direction.normalize());
+                    self.hideCombo();
+                    self.hit = self.checkHit2(self.bottle, self.currentBlock, self.nextBlock);
+                    if (self.currentBlock.order == 15) {
+                        self.currentBlock.hideGlow();
+                    }
+                    // if (self.UI.score - self.lastHardLevel > 15000 && self.hardDistances.length == 0) {
+                    //   self.lastHardLevel = self.UI.score;
+                    //   self.hardDistances = self.generateHardDistances();
+                    // }
+                    // if (self.hardDistances.length > 0) {
+                    //   self.distance = self.hardDistances.shift();
+                    // }
+                    // else {
+
+                    self.distance = Config.BLOCK.minDistance + (0, random)() * (Config.BLOCK.maxDistance - Config.BLOCK.minDistance);
+                    self.distance = +self.distance.toFixed(2);
+                    self.straight = (0, random)() > 0.5 ? 1 : 0;
+
+                    if (self.hit === 1 || self.hit === 7) {
+                        var block = self.generateNextBlock();
+                        self.thirdBlock = block;
+                        self.quick = Date.now() - self.lastSucceedTime < 800 || false;
+                        self.quickArr.push(self.quick);
+                        if (self.mode === 'player') {
+                            ++self.seq;
+                            self.gameSocket.sendCommand(self.seq, {
+                                type: 1,
+                                c: { x: self.currentBlock.obj.position.x, z: self.currentBlock.obj.position.z, order: self.currentBlock.order, type: self.currentBlock.type, r: self.currentBlock.radius, rs: self.currentBlock.radiusScale },
+                                n: { x: self.nextBlock.obj.position.x, z: self.nextBlock.obj.position.z, order: self.nextBlock.order, type: self.nextBlock.type, r: self.nextBlock.radius, rs: self.nextBlock.radiusScale },
+                                d: duration,
+                                b: { x: self.bottle.obj.position.x, y: +self.bottle.obj.position.y.toFixed(2), z: self.bottle.obj.position.z, vy: self.bottle.velocity.vy, vz: self.bottle.velocity.vz },
+                                t: { order: self.thirdBlock.order, type: self.thirdBlock.type, r: self.thirdBlock.radius, rs: self.thirdBlock.radiusScale },
+                                h: self.hit,
+                                di: self.distance,
+                                s: self.straight,
+                                q: self.quick,
+                                ca: { x: self.camera.position.x, y: self.camera.position.y, z: self.camera.position.z },
+                                gd: { x: self.ground.obj.position.x, y: self.ground.obj.position.y, z: self.ground.obj.position.z },
+                                score: self.UI.score
+                                // nickname: myUserInfo.nickname,
+                                // img: myUserInfo.headimg
+                            });
+                        }
+                    } else {
+                        if (self.mode === 'player') {
+                            ++self.seq;
+                            self.gameSocket.sendCommand(self.seq, {
+                                type: 1,
+                                c: { x: self.currentBlock.obj.position.x, z: self.currentBlock.obj.position.z, order: self.currentBlock.order, type: self.currentBlock.type, r: self.currentBlock.radius, rs: self.currentBlock.radiusScale },
+                                n: { x: self.nextBlock.obj.position.x, z: self.nextBlock.obj.position.z, order: self.nextBlock.order, type: self.nextBlock.type, r: self.nextBlock.radius, rs: self.nextBlock.radiusScale },
+                                d: duration,
+                                b: { x: self.bottle.obj.position.x, y: +self.bottle.obj.position.y.toFixed(2), z: self.bottle.obj.position.z, vy: self.bottle.velocity.vy, vz: self.bottle.velocity.vz },
+                                // t: { order: self.thirdBlock.order, type: self.thirdBlock.type, r: self.thirdBlock.radius, rs: self.thirdBlock.radiusScale },
+                                h: self.hit,
+                                di: self.distance,
+                                s: self.straight,
+                                q: self.quick,
+                                ca: { x: self.camera.position.x, y: self.camera.position.y, z: self.camera.position.z },
+                                gd: { x: self.ground.obj.position.x, y: self.ground.obj.position.y, z: self.ground.obj.position.z },
+                                score: self.UI.score
+                                // nickname: myUserInfo.nickname,
+                                // img: myUserInfo.headimg
+                            });
+                        }
+                    }
+                    if (self.mode != 'observe') {
+                        self.actionList.push([duration, +self.bottle.obj.position.y.toFixed(2), self.quick]);
+                        self.musicList.push(self.musicScore);
+                        if (e.changedTouches && e.changedTouches[0]) {
+                            self.touchList.push([e.changedTouches[0].clientX, e.changedTouches[0].clientY]);
+                        }
+                    }
+                }
+            }
+        };
+
+        this.canvas.addEventListener('touchend', touchEnd);
+
+        this.canvas.addEventListener('touchmove', function (e) {
+            // self.full2D.doTouchMoveEvent(e); return;
+            if (self.stage == 'battlePage' || self.stage == 'friendRankList' || self.stage == 'groupRankList') {
+                self.full2D.doTouchMoveEvent(e);
+                return;
+            }
+        });
+    }
+    Game.prototype.addWave = function (amount) {
+        var self = this;
+        for (var i = 0; i < amount; ++i) {
+            setTimeout(function (i) {
+                return function () {
+                    self.waves[i].obj.visible = true;
+                    //self.waves[i].obj.material.opacity = 1;
+                    self.waves[i].obj.position.set(self.bottle.obj.position.x, Config.BLOCK.height / 2 + i * 0.1 + 1, self.bottle.obj.position.z);
+
+                    (0, MAnimation.TweenAnimation)(self.waves[i].obj.scale.x, 4, 2 / (i / 2.5 + 2) * 500, 'Linear', function (value, complete) {
+                        self.waves[i].obj.scale.x = value;
+                        self.waves[i].obj.scale.y = value;
+                        self.waves[i].obj.scale.z = value;
+                    });
+
+                    (0, MAnimation.TweenAnimation)(self.waves[i].obj.material.opacity, 0, 2 / (i / 2.5 + 2) * 500, 'Linear', function (value, complete) {
+                        self.waves[i].obj.material.opacity = value;
+                        if (complete) {
+                            self.waves[i].reset();
+                        }
+                    });
+
+                    /*           TweenMax.to(self.waves[i].obj.scale, 2 / (i / 2.5 + 2), { x: 4, y: 4, z: 4 }); */
+                    // TweenMax.to(self.waves[i].obj.material, 2 / (i / 2.5 + 2), {
+                    // opacity: 0, onComplete: function () {
+                    // self.waves[i].reset();
+                    // }
+                    /* }); */
+                };
+            }(i), i * 200);
+        }
+    }
+    Game.prototype.addLight = function () {
+        var ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+        this.shadowLight = new THREE.DirectionalLight(0xffffff, 0.28);
+        this.shadowLight.position.set(0, 15, 10);
+        if (this.renderer.shadowMap.enabled) {
+            this.shadowLight.castShadow = true;
+            this.shadowLight.target = this.shadowTarget;
+            this.shadowLight.shadow.camera.near = 5;
+            this.shadowLight.shadow.camera.far = 30;
+            this.shadowLight.shadow.camera.left = -10;
+            this.shadowLight.shadow.camera.right = 10;
+            this.shadowLight.shadow.camera.top = 10;
+            this.shadowLight.shadow.camera.bottom = -10;
+            this.shadowLight.shadow.mapSize.width = 512;
+            this.shadowLight.shadow.mapSize.height = 512;
+            var shadowGeometry = new THREE.PlaneGeometry(65, 25);
+            this.shadowGround = new THREE.Mesh(shadowGeometry, new THREE.ShadowMaterial({ transparent: true, color: 0x000000, opacity: 0.3 }));
+            this.shadowGround.receiveShadow = true;
+            //this.shadowGround.position.z = 0;
+            this.shadowGround.position.x = -25;
+            this.shadowGround.position.y = -18;
+            this.shadowGround.position.z = -15;
+            this.shadowGround.rotation.x = -Math.PI / 2;
+            this.shadowLight.add(this.shadowGround);
+        }
+
+        this.scene.add(this.shadowLight);
+
+        this.scene.add(ambientLight);
+    }
+    Game.prototype.checkHit2 = function (bottle, currentBlock, nextBlock, initY) {
+        var flyingTime = bottle.velocity.vy / Config.GAME.gravity * 2;
+        initY = initY || +bottle.obj.position.y.toFixed(2);
+        var destinationY = Config.BLOCK.height / 2;
+
+        var differenceY = destinationY - initY;
+        var time = +((-bottle.velocity.vy + Math.sqrt(Math.pow(bottle.velocity.vy, 2) - 2 * Config.GAME.gravity * differenceY)) / -Config.GAME.gravity).toFixed(2);
+        flyingTime -= time;
+        flyingTime = +flyingTime.toFixed(2);
+        var destination = [];
+        var bottlePosition = new THREE.Vector2(bottle.obj.position.x, bottle.obj.position.z);
+        var translate = this.direction.setLength(bottle.velocity.vz * flyingTime);
+        bottlePosition.add(translate);
+        bottle.destination = [+bottlePosition.x.toFixed(2), +bottlePosition.y.toFixed(2)];
+        destination.push(+bottlePosition.x.toFixed(2), +bottlePosition.y.toFixed(2));
+        if (this.animating) return 7;
+        if (nextBlock) {
+            var nextDiff = Math.pow(destination[0] - nextBlock.obj.position.x, 2) + Math.pow(destination[1] - nextBlock.obj.position.z, 2);
+            var nextPolygon = nextBlock.getVertices();
+            var result1;
+            if ((0, PointInPolygon)(destination, nextPolygon)) {
+                if (Math.abs(nextDiff) < 0.5) {
+                    return 1;
+                } else {
+                    return 7;
+                }
+            } else if ((0, PointInPolygon)([destination[0] - Config.BOTTLE.bodyWidth / 2, destination[1]], nextPolygon) || (0, PointInPolygon)([destination[0], destination[1] + Config.BOTTLE.bodyDepth / 2], nextPolygon)) {
+                result1 = 5;
+            } else if ((0, PointInPolygon)([destination[0], destination[1] - Config.BOTTLE.bodyDepth / 2], nextPolygon) || (0, PointInPolygon)([destination[0] + Config.BOTTLE.bodyDepth / 2, destination[1]], nextPolygon)) {
+                result1 = 3;
+            }
+        }
+
+        var currentPolygon = currentBlock.getVertices();
+        var result2;
+        if ((0, PointInPolygon)(destination, currentPolygon)) {
+            return 2;
+        } else if ((0, PointInPolygon)([destination[0], destination[1] + Config.BOTTLE.bodyDepth / 2], currentPolygon) || (0, PointInPolygon)([destination[0] - Config.BOTTLE.bodyWidth / 2, destination[1]], currentPolygon)) {
+            if (result1) return 6;
+            return 4;
+        }
+        return result1 || result2 || 0;
+    }
+
+    Game.prototype.render = function(tickTime) {
+
+        var _this = this;
+
+        // 更新尾巴
+        if (this.tailSystem) {
+            this.tailSystem.update(tickTime * 1000);
+        }
+
+        this.bottle.update(tickTime);
+        this.UI.update();
+        if (this.renderer.shadowMap.enabled) {
+            this.shadowTarget.position.x = this.bottle.obj.position.x;
+            this.shadowTarget.position.z = this.bottle.obj.position.z;
+            this.shadowLight.position.x = this.bottle.obj.position.x + 0;
+            this.shadowLight.position.z = this.bottle.obj.position.z + 10;
+        }
+        for (var i = 0, len = this.blocksInUse.length; i < len; ++i) {
+            this.blocksInUse[i].update();
+        }
+
+        if (this.guider && this.blocks[0]) this.blocks[0].update();
+
+        if ((this.bottle.status === 'forerake' || this.bottle.status === 'hypsokinesis') && this.hit != 5) {
+            var boxes = this.bottle.getBox();
+            var blockBox = this.bottle.status === 'forerake' ? this.nextBlock.getBox() : this.currentBlock.getBox();
+            for (var i = 0, len = boxes.length; i < len; ++i) {
+                if (boxes[i].intersectsBox(blockBox)) {
+                    //   var box = new THREE.BoxHelper(this.bottle.middle, 0xffff00 );
+                    // var box2 = new THREE.BoxHelper(this.bottle.head, 0xffff00 );
+                    // var box3 = new THREE.BoxHelper(this.currentBlock.body, 0xffff00);
+                    // this.scene.add(box3);
+                    // this.scene.add(box2);
+                    // this.scene.add( box );
+                    if (i == 0) {
+                        this.bottle.rotate();
+                        if (this.suspendTimer) {
+                            clearTimeout(this.suspendTimer);
+                            this.suspendTimer = null;
+                        }
+                    } else if (i == 1) {
+                        this.bottle.suspend();
+                        if (this.suspendTimer) {
+                            clearTimeout(this.suspendTimer);
+                            this.suspendTimer = null;
+                        }
+                    } else if (i == 2 && !this.suspendTimer) {
+                        this.suspendTimer = setTimeout(function () {
+                            _this.bottle.suspend();
+                            _this.suspendTimer = null;
+                        }, 90 * this.distance);
+                    }
+                    break;
+                }
+            }
+        }
+        // 物理碰撞
+        if (this.bottle.obj.position.y <= Config.BLOCK.height / 2 + 0.1 && this.bottle.status === 'jump' && this.bottle.flyingTime > 0.3 && !this.pendingReset) {
+            if (this.hit === 1 || this.hit === 7) {
+                this.bottle.stop();
+                this.succeed();
+                if (this.animating) return;
+                //this.addWave(Math.min(1, 4));
+                if (this.hit === 1) {
+                    //this.bottle.showAddScore(1, true);
+                    // 播放命中靶心
+//                    this.audioManager['combo' + Math.min(this.doubleHit + 1, 8)].seek(0);
+//                    this.audioManager['combo' + Math.min(this.doubleHit + 1, 8)].play();
+
+                    ++this.doubleHit;
+                    this.addWave(Math.min(this.doubleHit, 4));
+                    this.bottle.showAddScore(1, true, this.quick);
+                    this.UI.addScore(1, true, this.quick);
+                    this.currentScore = this.UI.score;
+
+                    if (this.mode != 'observe') {
+                        this.showCombo();
+                    }
+                } else {
+
+                    // 播放成功音乐
+                    this.doubleHit = 0;
+                    this.UI.addScore(1, false, this.quick);
+                    this.currentScore = this.UI.score;
+                    this.bottle.showAddScore(1, false, this.quick);
+                }
+//                this.audioManager.success.seek(0);
+//                this.audioManager.success.play();
+
+                if (this.mode != 'observe') {
+
+                    // 更新超越头像
+                    this.rankSystem.update();
+                }
+            } else if (this.hit === 2) {
+                this.bottle.stop();
+                this.bottle.obj.position.y = Config.BLOCK.height / 2;
+                this.bottle.obj.position.x = this.bottle.destination[0];
+                this.bottle.obj.position.z = this.bottle.destination[1];
+            } else if (this.hit === 3) {
+                this.bottle.hypsokinesis();
+//                this.audioManager.fall_2.play();
+                this.bottle.obj.position.y = Config.BLOCK.height / 2;
+            } else if (this.hit === 4 || this.hit === 5) {
+                this.bottle.forerake();
+//                this.audioManager.fall_2.play();
+                this.bottle.obj.position.y = Config.BLOCK.height / 2;
+            } else if (this.hit === 0) {
+                this.bottle.fall();
+//                this.audioManager.fall.play();
+                this.bottle.obj.position.y = Config.BLOCK.height / 2;
+            } else if (this.hit === 6) {
+                this.bottle.stop();
+//                this.audioManager.fall.play();
+                this.bottle.obj.position.y = Config.BLOCK.height / 2;
+            } else if (this.hit === -1) {
+                this.bottle.stop();
+                this.bottle.obj.position.y = Config.BLOCK.height / 2;
+                this.bottle.obj.position.x = 0;
+            }
+            if (this.hit === 0 || this.hit === 3 || this.hit === 4 || this.hit === 5 || this.hit === 6) {
+                if (this.guider) {
+                    if (this.UI.score > 0) {
+                        this.guider = false;
+                    } else {
+                        if (this.liveTime > 3) {
+                            this.guider = false;
+                            this.full2D.hide2DGradually();
+                        } else {
+                            this.live();
+                            return;
+                        }
+                    }
+                }
+                this.pendingReset = true;
+                this.currentScore = this.UI.score;
+                this.gameCtrl.gameOver(this.currentScore);
+                this.deadTimeout = setTimeout(function () {
+                    MAnimation.killAll();
+                    _this.gameCtrl.gameOverShowPage();
+                    _this.pendingReset = false;
+                    if (_this.mode == 'observe') {
+                        _this.instructionCtrl.onCmdComplete();
+                    }
+                }, 2000);
+            } else {
+                if (this.mode == 'observe') {
+                    this.instructionCtrl.onCmdComplete();
+                }
+            }
+        }
+
+        this.renderer.render( this.scene, this.camera );
+    }
+    Game.prototype.handleWxOnShowEvent = function (options) {
+        console.log('-------handleWxOnShowEvent--', this.hit);
+        var self = this;
+        this.show = true;
+
+        this.reporter.enterReport(options.scene);
+
+        if (!this.firstInit) this.guider = false;
+
+        if (this.guiderTimer && !this.guider) {
+            clearInterval(this.guiderTimer);
+            this.guiderTimer = null;
+        }
+
+        // 处理第一次提交
+
+        this.onshowAnimateTimer = setTimeout(function (firstInit) {
+            return function () {
+                console.log('-------onshowAnimateTimer--', self.mode, self.stage, self.animateTimer, self.show);
+                if (self.mode == 'single' && self.stage == 'startPage' && !self.animateTimer && self.show) {
+                    if (self.blocks && self.blocks.length > 0 && !self.firstAnimating) {
+                        self.loopAnimate();
+                    } else if (!self.animating && firstInit && !self.guider) {
+
+                        self.animating = true;
+                        self.animate();
+                    }
+                }
+            };
+        }(this.firstInit), 1000);
+
+        if (this.firstInit) {
+            this.firstInit = false;
+            return;
+        }
+
+        this.gameCtrl.wxOnShow(options);
+    }
+    Game.prototype.loopAnimate = function () {
+        var self = this;
+
+        var duration = 0.7;
+        this.bottle.velocity.vz = Math.min(duration * Config.BOTTLE.velocityZIncrement, 180);
+        this.bottle.velocity.vy = Math.min(Config.BOTTLE.velocityY + duration * Config.BOTTLE.velocityYIncrement, 180);
+        var direction = new THREE.Vector3(this.nextBlock.obj.position.x - this.bottle.obj.position.x, 0, this.nextBlock.obj.position.z - this.bottle.obj.position.z);
+        this.direction = new THREE.Vector2(this.nextBlock.obj.position.x - this.bottle.obj.position.x, this.nextBlock.obj.position.z - this.bottle.obj.position.z);
+        this.hit = this.checkHit2(this.bottle, this.currentBlock, this.nextBlock);
+        this.thirdBlock = this.generateNextBlock();
+        this.thirdBlock.obj.position.set(39.7, 0, 0);
+        if (this.tailSystem) {
+
+            this.tailSystem.correctPosition();
+        }
+        this.bottle.jump(direction.normalize());
+        this.animateTimer = setTimeout(function () {
+            self.loopAnimate();
+        }, 3000);
+    }
+
+    Game.prototype.animate = function () {
+        console.log('-------animate--');
+        var self = this;
+
+        this.firstAnimating = true;
+        var self = this;
+        for (var i = 0; i < 7; ++i) {
+            setTimeout(function (i) {
+                return function () {
+                    if ((self.mode == 'single' && (self.stage == 'startPage' || self.stage == 'friendRankList') || self.guider) && self.blocks && self.blocks.length < 7) {
+                        var block = new Block(-1, i);
+                        block.showup(i);
+                        self.scene.add(block.obj);
+                        self.blocks.push(block);
+                        if (i == 0) this.nextBlock = block;
+                    }
+                };
+            }(i), i * 200);
+        }
+        setTimeout(function () {
+            if (!(self.mode == 'single' && (self.stage == 'startPage' || self.stage == 'friendRankList')) && !self.guider) return;
+            var duration = 0.4;
+            self.bottle.velocity.vz = Math.min(duration * Config.BOTTLE.velocityZIncrement, 180);
+            self.bottle.velocity.vy = Math.min(Config.BOTTLE.velocityY + duration * Config.BOTTLE.velocityYIncrement, 180);
+            self.direction = new THREE.Vector2(self.nextBlock.obj.position.x - self.bottle.obj.position.x, self.nextBlock.obj.position.z - self.bottle.obj.position.z);
+            var direction = new THREE.Vector3(self.nextBlock.obj.position.x - self.bottle.obj.position.x, 0, self.nextBlock.obj.position.z - self.bottle.obj.position.z);
+            self.bottle.jump(direction.normalize());
+            self.hit = -1;
+            self.nextBlock = self.initNextBlock;
+            for (var i = 0, len = self.blocks.length; i < len; ++i) {
+                MAnimation.customAnimation.to(self.blocks[i].hitObj.material, 1, { opacity: 0, delay: i * 0.2 + 0.5 });
+            }
+            for (var i = 1, len = self.blocks.length; i < len; ++i) {
+                MAnimation.customAnimation.to(self.blocks[i].obj.position, 0.5, { z: i % 2 == 0 ? 60 : -60, delay: i * 0.1 + 2.2 });
+            }
+            if (self.guider) {
+                MAnimation.customAnimation.to(self.currentBlock.obj.position, 0.5, { z: -60, delay: 2.1 });
+                var currentBlock = self.currentBlock;
+                setTimeout(function () {
+                    currentBlock.obj.visible = false;
+                }, 3000);
+            }
+            self.currentBlock = self.blocks[0];
+            setTimeout(function () {
+                if (!(self.mode == 'single' && (self.stage == 'startPage' || self.stage == 'friendRankList')) && !self.guider) return;
+                if (self.guider) {
+                    //this.nextBlock.change(null, null, 1);
+                    //this.nextBlock.obj.position.x = 14;
+                    self.full2D.showBeginnerPage();
+                }
+                self.nextBlock.popup();
+                self.nextBlock.greenMaterial.color.setHex(0x5d5d5d);
+                self.nextBlock.whiteMaterial.color.setHex(0xaaaaaa);
+                self.scene.add(self.nextBlock.obj);
+                for (var i = 1, len = self.blocks.length; i < len; ++i) {
+                    self.blocks[i].obj.visible = false;
+                }
+                if (self.guider) {
+                    self.animating = false;
+                }
+                self.firstAnimating = false;
+            }, 3000);
+            setTimeout(function () {
+                if (!(self.mode == 'single' && (self.stage == 'startPage' || self.stage == 'friendRankList'))) return;
+                if (!self.show) return;
+                self.loopAnimate();
+            }, 4500);
+        }, 1500);
+    }
+    Game.prototype.succeed = function () {
+        var self = this;
+
+        ++this.succeedTime;
+        this.musicScore = false;
+        this.lastSucceedTime = Date.now();
+        if (this.succeedTime % 15 == 0) {
+            this.ground.changeColor();
+        }
+        if (this.blocksInUse.length >= 9) {
+            var temp = this.blocksInUse.shift();
+            temp.obj.visible = false;
+            this.blocksPool.push(temp);
+        }
+        var firstV = this.nextBlock.obj.position.clone().sub(this.currentBlock.obj.position);
+        this.bottle.obj.position.x = this.bottle.destination[0];
+        this.bottle.obj.position.z = this.bottle.destination[1];
+        this.bottle.squeeze();
+        var block = this.thirdBlock;
+        if (this.firstAnimating) return;
+        if (this.guider) {
+            this.guider = false;
+            this.full2D.hide2DGradually();
+        }
+        if (this.animating) {
+        } else {
+            if (this.nextBlock.order == 15) {
+                this.nextBlock.glow();
+            } else if (this.nextBlock.order == 19) {
+                var box = this.nextBlock;
+                // this.audioManager.register('sing', () => {
+                //    box.playMusic();
+                //  });
+                this.musicTimer = setTimeout(function () {
+//                    self.audioManager.sing.seek(0);
+//                    self.audioManager.sing.play();
+                    box.playMusic();
+                    self.musicScore = true;
+                    self.UI.addScore(30, false, false, true);
+                    self.bottle.showAddScore(30, false, false, true);
+                }, 2000);
+            } else if (this.nextBlock.order == 24) {
+                var box = this.nextBlock;
+//                this.audioManager.register('store', function () {
+//                    box.openDoor();
+//                }, function () {
+//                    box.closeDoor();
+//                });
+                this.musicTimer = setTimeout(function () {
+//                    self.audioManager.store.seek(0);
+//                    self.audioManager.store.play();
+                    self.musicScore = true;
+                    self.UI.addScore(15, false, false, true);
+                    self.bottle.showAddScore(15, false, false, true);
+                }, 2000);
+            } else if (this.nextBlock.order == 26) {
+                this.musicTimer = setTimeout(function () {
+//                    self.audioManager.water.seek(0);
+//                    self.audioManager.water.play();
+                    self.UI.addScore(5, false, false, true);
+                    self.musicScore = true;
+                    self.bottle.showAddScore(5, false, false, true);
+                }, 2000);
+            } else if (this.nextBlock.order == 17) {
+                var box = this.nextBlock;
+                this.musicTimer = setTimeout(function () {
+                    box.rotateBox();
+                    self.musicScore = true;
+                    self.UI.addScore(10, false, false, true);
+                    self.bottle.showAddScore(10, false, false, true);
+                }, 2000);
+            }
+            var nextPosition = this.nextBlock.obj.position.clone();
+            var distance = this.nextBlock.radius + this.distance + block.radius;
+            var straight = this.straight;
+            var straight = this.straight;
+            if (straight) {
+                nextPosition.x += distance;
+                this.bottle.lookAt('straight', nextPosition.clone());
+            } else {
+                nextPosition.z -= distance;
+                this.bottle.lookAt('left', nextPosition.clone());
+            }
+            block.obj.position.x = nextPosition.x;
+            block.obj.position.z = nextPosition.z;
+            // this.audioManager['pop'].seek(0);
+            // this.audioManager['pop'].play();
+        }
+        block.popup();
+        var secondV = block.obj.position.clone().sub(this.nextBlock.obj.position);
+        var cameraV = firstV.add(secondV);
+        cameraV.x /= 2;
+        cameraV.z /= 2;
+        // this.blocksInUse.push(block);
+        this.scene.add(block.obj);
+        this.currentBlock = this.nextBlock;
+        this.nextBlock = block;
+
+        var duration = cameraV.length() / 10;
+        if (Config.GAME.canShadow) this.bottle.scatterParticles();
+        if (this.animating) cameraV.x = 19.8;
+        this.moveGradually(cameraV, duration);
+        this.bottle.human.rotation.z = 0;
+        this.bottle.human.rotation.x = 0;
+    }
+    Game.prototype.moveGradually = function(vector, duration) {
+        if (this.animating && !this.guider) {
+            (0, MAnimation.TweenAnimation)(this.bottle.obj.position.x, this.bottle.obj.position.x - vector.x, duration * 500, 'Linear', function (value, complete) {
+                this.bottle.obj.position.x = value;
+                if (complete) {
+                    this.bottle.obj.position.x = -0.098;
+                }
+            }.bind(this));
+
+            // TweenAnimation(this.bottle.obj.position.z, this.bottle.obj.position.z - vector.z, duration * 500, 'Linear', function (value) {
+            //   this.bottle.obj.position.z = value
+            // }.bind(this))
+
+            for (var i = 0, len = this.blocksInUse.length; i < len; ++i) {
+                (0, MAnimation.TweenAnimation)(this.blocksInUse[i].obj.position.x, this.blocksInUse[i].obj.position.x - vector.x, duration * 500, 'Linear', function (value) {
+                    this.obj.position.x = value;
+                }.bind(this.blocksInUse[i]));
+                // TweenAnimation(this.blocksInUse[i].obj.position.z, this.blocksInUse[i].obj.position.z - vector.z, duration * 500, 'Linear', function (value) {
+                //   this.obj.position.z = value
+                // }.bind(this.blocksInUse[i]))
+            }
+            if (this.blocks[0]) {
+                (0, MAnimation.TweenAnimation)(this.blocks[0].obj.position.x, this.blocks[0].obj.position.x - vector.x, duration * 500, 'Linear', function (value) {
+                    this.obj.position.x = value;
+                }.bind(this.blocks[0]));
+            }
+        } else {
+            (0, MAnimation.TweenAnimation)(this.camera.position.x, this.camera.position.x + vector.x, duration * 500, 'Quad.easeOut', function (value) {
+                this.camera.position.x = value;
+            }.bind(this));
+            (0, MAnimation.TweenAnimation)(this.camera.position.z, this.camera.position.z + vector.z, duration * 500, 'Quad.easeOut', function (value) {
+                this.camera.position.z = value;
+            }.bind(this));
+            //TweenMax.to(this.camera.position, duration, { ease: Power2.easeOut, x: this.camera.position.x + vector.x, z: this.camera.position.z + vector.z });
+        }
+    }
+    Game.prototype.showCombo = function () {
+        var _this6 = this;
+
+        setTimeout(function () {
+            _this6.combo.position.set(_this6.nextBlock.obj.position.x, Config.BLOCK.height / 2 + 0.15, _this6.nextBlock.obj.position.z);
+        }, 200);
+    }
+    Game.prototype.hideCombo = function () {
+//        console.log('-------showCombo--');
+    }
+    Game.prototype.replayGame = function (seed) {
+//        console.log('-------replayGame--', this.guider);
+        this.currentScore = 0;
+        this.gameCtrl.onReplayGame();
+//        this.audioManager.restart.seek(0);
+//        this.audioManager.restart.play();
+        if (this.guider) {
+            if (this.guiderTimer) {
+                clearInterval(this.guiderTimer);
+                this.guiderTimer = null;
+            }
+            this.animating = true;
+            this.animate();
+            this.moveGradually(new THREE.Vector3(19, 0, 0), 3);
+        } else {
+            // 播放重新开始音效
+            this.resetScene(seed);
+            this.bottle.showup();
+        }
+    }
+    Game.prototype.resetScene = function (seed) {
+//        console.log('-------resetScene--');
+        this.firstAnimating = false;
+        for (var i = 0, len = this.blocks.length; i < len; ++i) {
+            this.scene.remove(this.blocks[i].obj);
+        }
+        this.blocks = [];
+        if (this.mode == 'observe') {
+            this.audioManager.scale_intro.stop();
+            this.audioManager.scale_loop.stop();
+        }
+        this.randomSeed = seed || Date.now();
+        (0, setRandomSeed)(this.randomSeed);
+        this.actionList = [];
+        this.musicList = [];
+        this.touchList = [];
+        if (this.animateTimer) {
+            clearTimeout(this.animateTimer);
+            this.animateTimer = null;
+        }
+
+        // 修复围观在蓄力到一半的情况下resetScene底座压缩到一半没回弹的情况
+        if (this.currentBlock) {
+            this.currentBlock.reset();
+        }
+        MAnimation.killAll();
+        this.animating = false;
+        Config.BLOCK.minRadiusScale = 0.8;
+        Config.BLOCK.maxRadiusScale = 1;
+        Config.BLOCK.minDistance = 1;
+        Config.BLOCK.maxDistance = 17;
+        // this.AudioManager.restart.currentTime = 0
+        // this.audioManager.restart.play()
+        for (var i = 0, len = this.blocksInUse.length; i < len; ++i) {
+            var block = this.blocksInUse.pop();
+            block.obj.visible = false;
+            block.reset();
+            this.blocksPool.push(block);
+        }
+        for (var i = 0, len = this.waves.length; i < len; ++i) {
+            this.waves[i].reset();
+        }
+
+        this.blocksPool.sort(function (a, b) {
+            return a.order - b.order;
+        });
+        this.currentBlock = this.blocksPool.shift();
+        this.currentBlock.obj.visible = true;
+        this.scene.add(this.currentBlock.obj);
+        this.blocksInUse.push(this.currentBlock);
+        this.shadowTarget && this.shadowTarget.position.set(0, 0, 0);
+        this.nextBlock = this.blocksPool.shift();
+        this.currentBlock.change(null, null, 1);
+        this.nextBlock.change(null, null, 1);
+        this.nextBlock.obj.position.set(20, 0, 0);
+        this.currentBlock.obj.position.set(0, 0, 0);
+        this.nextBlock.obj.visible = true;
+        this.scene.add(this.nextBlock.obj);
+        this.blocksInUse.push(this.nextBlock);
+        this.bottle.reset();
+
+        this.thirdBlock = null;
+
+        this.UI.reset();
+
+        this.rankSystem.reset();
+
+        this.lastAddBonus = -2;
+        this.succeedTime = 0;
+
+        //this.moveCamera.reset();
+        this.doubleHit = 0;
+        this.camera.position.set(-17, 30, 26);
+        this.shadowLight.position.set(0, 15, 10);
+    }
+    Game.prototype.generateHardDistances = function () {
+//        console.log('-------generateHardDistances--');
+    }
+    Game.prototype.stopBlockMusic = function () {
+//        console.log('-------stopBlockMusic--');
+    }
+    Game.prototype.handleSocketFucked = function () {
+//        console.log('-------handleSocketFucked--');
+    }
+    Game.prototype.handleNetworkFucked = function (show) {
+//        console.log('-------handleNetworkFucked--');
+    }
+    Game.prototype.handleInterrupt = function () {
+//        console.log('-------handleInterrupt--');
+    }
+    Game.prototype.handleWxOnError = function (error) {
+//        console.log('-------handleWxOnError--');
+    }
+    Game.prototype.sendServerError = function (word) {
+//        console.log('-------sendServerError--');
+    }
+    Game.prototype.shuffleArray = function (array) {
+        for (var i = array.length - 1; i > 0; i--) {
+            var j = Math.floor(random() * (i + 1));
+            var temp = array[i];
+            array[i] = array[j];
+            array[j] = temp;
+        }
+    }
+    Game.prototype.generateNextBlock = function () {
+        var block;
+        var interval = 5;
+        if (this.UI.score > 1000) {
+            interval = 6;
+        } else if (this.succeedTime > 3000) {
+            interval = 7;
+        }
+        if (!this.animating) {
+            this.shuffleArray(this.blocksPool);
+        }
+        for (var i = 0, len = this.blocksPool.length; i < len; ++i) {
+            if (this.succeedTime - this.lastAddBonus >= interval && this.blocksPool[i].order >= 13 || this.succeedTime - this.lastAddBonus < interval && this.blocksPool[i].order < 13) {
+                block = this.blocksPool[i];
+                if (block.order >= 13) {
+                    if (this.lastBonusOrder && this.lastBonusOrder == block.order || this.UI.score < 100 && block.order == 29) {
+                        continue;
+                    }
+                    this.lastAddBonus = this.succeedTime;
+                    this.lastBonusOrder = block.order;
+                }
+                this.blocksInUse.push(block);
+                this.blocksPool.splice(i, 1);
+                break;
+            }
+        }
+        if (!block) {
+            var temp = this.blocksInUse.shift();
+            while (temp.order >= 13) {
+                temp.obj.visible = false;
+                this.blocksPool.push(temp);
+                temp = this.blocksInUse.shift();
+            }
+            block = temp;
+            this.blocksInUse.push(block);
+        }
+        block.obj.visible = false;
+        block.change();
+        return block;
+    }
+    Game.prototype.live = function () {
+        var _this7 = this;
+
+        ++this.liveTime;
+        this.firstAnimating = false;
+        if (this.animateTimer) {
+            clearTimeout(this.animateTimer);
+            this.animateTimer = null;
+        }
+        MAnimation.killAll();
+        this.animating = false;
+        Config.BLOCK.minRadiusScale = 0.8;
+        Config.BLOCK.maxRadiusScale = 1;
+        Config.BLOCK.minDistance = 1;
+        Config.BLOCK.maxDistance = 17;
+        setTimeout(function () {
+            _this7.bottle.reset();
+            _this7.bottle.obj.position.x = 0;
+            _this7.bottle.showup();
+        }, 2000);
+        this.actionList = [];
+        this.musicList = [];
+        this.touchList = [];
+    }
+
+    loadFontCallback = function () {
+        var lastFrameTime = Date.now();
+        var oRequestAnimation = requestAnimationFrame;
+        var frameCallbacks = [];
+        var lastestFrameCallback = 0;
+
+        var requestAnimationFrameHandler = function requestAnimationFrameHandler() {
+            var _frameCallbacks = [];
+            var _lastestFrameCallback = lastestFrameCallback;
+
+            frameCallbacks.forEach(function (cb) {
+                _frameCallbacks.push(cb);
+            });
+            lastestFrameCallback = undefined;
+            frameCallbacks.length = 0;
+
+            _frameCallbacks.forEach(function (cb) {
+                typeof cb === 'function' && cb();
+            });
+            if (typeof _lastestFrameCallback === 'function') {
+                _lastestFrameCallback();
+            }
+
+            oRequestAnimation(requestAnimationFrameHandler);
+        };
+
+        window.requestAnimationFrame = function (callback, isLastest) {
+            if (!isLastest) {
+                frameCallbacks.push(callback);
+            } else {
+                lastestFrameCallback = callback;
+            }
+        };
+
+        function animate() {
+
+            var now = Date.now();
+            var tickTime = now - lastFrameTime;
+            lastFrameTime = now;
+            requestAnimationFrame(animate, true);
+            if (tickTime > 100) return;
+            gameControl.render(tickTime / 1000);
+
+        }
+
+        var gameControl = new Game();
+        requestAnimationFrameHandler();
+        animate();
+    }
+
+
+
+
+</script>
+
+</body>
+</html>
